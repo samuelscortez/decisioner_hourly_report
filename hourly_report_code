@@ -1,17 +1,10 @@
-// Author: Samuel Cortez
-
-
-
-// Create a global object
-var decisionerObj = new CreateDecisionerObj();
-
-
+var user = new CreateDecisionerObj();
 
 // Run functions every time that the spreadsheet is opened
 function onOpen() {
   
   // Check permission to run trigger
-  startShiftGreeting(decisionerObj);
+  startShiftGreeting(user);
 };
 
 
@@ -77,10 +70,12 @@ function CreateDecisionerObj() {
 // Sends greeting, and requests to run report for the day
 function startShiftGreeting() {
   var currentTime = new Date();
-  var startDay = decisionerObj.start_day; // Get first work day of Decisioner
-  var endDay = decisionerObj.end_day; // Get last work day of Decisioner
-  var startShift = roundTheNumber(decisionerObj.start_shift);
-  var greeting = 'Good morning ' + decisionerObj.first_name + ',';
+  var startDay = user.start_day; // Get first work day of Decisioner
+  var endDay = user.end_day; // Get last work day of Decisioner
+  var startShift = roundTheNumber(user.start_shift);
+  
+  // Create ui messages requesting permission to run report
+  var greeting = 'Good morning ' + user.first_name + ',';
   greeting += '\\n \\n Today is ' + currentTime + '. Would you like to receive a report of tasks reviewed from the every hour?';
   var response1 = 'Thank you! Please press the "Run Report" button, and we will email you a report at the end of each hour.';
   var response2 = 'Please let us know if we could be of help to you next time!';
@@ -129,16 +124,13 @@ function createTrigger() {
 // Check current time to see if a report can be produced
 function checkReportTimes() {
   var currentTime = new Date();
-  var firstReport = roundTheNumber(decisionerObj.start_shift); // Get hour that Decisioner starts their shift
-  Logger.log('firstReport: ' + firstReport);
-  var lastReport = roundTheNumber(decisionerObj.end_shift); // Get hour that Decisioner ends their shift
-  Logger.log('lastReport: ' + lastReport);
+  var firstReport = roundTheNumber(user.start_shift); // Get hour that Decisioner starts their shift
+  var lastReport = roundTheNumber(user.end_shift); // Get hour that Decisioner ends their shift
   
   if (currentTime.getHours() >= firstReport + 1 && currentTime.getHours() <= lastReport) { // Fetch report
-    Logger.log('We can report. Current hour is ' + currentTime.getHours());
-    runReport(decisionerObj); 
+    runReport(); 
   } else if (currentTime.getHours() == lastReport + 1) { // If it is the last hour, then fetch report, and close trigger
-    runReport(decisionerObj); 
+    runReport(); 
     deleteTriggers();
   }
 };
@@ -146,7 +138,7 @@ function checkReportTimes() {
 
 
 // Retrievs the number of tasks reviewed in the past hour
-function runReport(decisionerObj) {
+function runReport() {
   var currentTime = new Date();
   var trackerSheet = 'Daily_log';
   var timeStampHeader = 'Time_stamp';
@@ -175,25 +167,27 @@ function runReport(decisionerObj) {
       }
     }
   }
-  
-  var message = 'It is '+currentTime+'. You reviewed '+taskCount+' tasks in the past hour. '; 
-  message += 'Please remember to reset your Cross-Department status in Cisco.';
-  
-  Logger.log('message: ' + message);
-  emailReport(message); // Email the report of current time and number of tasks reviewed
+  emailReport(taskCount); // Email the report of current time and number of tasks reviewed
 };
 
 
 
 // Email report of the number of tasks reviewed in the past hour; takes parameters of decisioner object, and content of email
-function emailReport(message) {
-  var user = new CreateDecisionerObj(); // Initialize user object again
+function emailReport(taskCount) {
+  var currentTime = new Date();
   var email = user.email;
-  Logger.log('email: ' + email);
   var subject = 'Hourly task review report';
-  var message = message;
   
-  MailApp.sendEmail(email, subject, message); // Send email
+  var html = HtmlService.createTemplateFromFile('reportMessage'); // Retrieve Html file containing body of email
+  html.firstName = user.first_name;
+  html.currentTime = currentTime;
+  html.taskCount = taskCount;
+  
+  MailApp.sendEmail(email, subject, 
+                    '',
+                    {
+                      htmlBody: html.evaluate().getContent() 
+                    }); // Send email
 };
 
 
