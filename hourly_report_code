@@ -1,0 +1,210 @@
+// Author: Samuel Cortez
+
+
+
+// Create a global object
+var decisionerObj = new CreateDecisionerObj();
+
+
+
+// Run functions every time that the spreadsheet is opened
+function onOpen() {
+  
+  // Check permission to run trigger
+  startShiftGreeting(decisionerObj);
+};
+
+
+
+/* Checks to see if a number is a whole number, 
+and converts floating point numbers into an whole number by subtracting the remainder */
+function roundTheNumber(number) {
+  
+  if (number % 1 != 0) {
+    Logger.log('integer % 1 = ' + number % 1);
+    var roundedNumber = (number - number % 1);
+    
+    Logger.log(roundedNumber);
+    return roundedNumber;
+  } else {
+    
+    Logger.log(number);
+    return number;
+  }
+};
+
+
+
+/* Gets the row number of the sheet that contains data,
+and deduction */
+function getLastRow(colNum) {
+  var minus = 100; // Used for running report; sets how far back in the tracker to count for tasks
+  var secondIntRow = 101;
+  
+  var sheet = SpreadsheetApp.getActive().getActiveSheet();
+  var getAllRows = sheet.getRange(1, colNum, sheet.getLastRow(), 1).getValues();
+  var lastRowIndex = getAllRows.filter(String).length; // Gets the row number of most bottom cell containing data
+  
+  if (lastRowIndex < 100) { // If lastRowIndex is less than a 100, set minus to 0
+    minus = lastRowIndex - 2;
+    secondIntRow = lastRowIndex - 1;
+  }
+  
+  return [lastRowIndex, minus, secondIntRow];
+};
+
+
+
+// Creates a new object containing a Decisioner's information (name, email, shift, etc.)
+function CreateDecisionerObj() {
+  var userDataSheet = 'Ref';
+  var keyHeader = 'Decisioner';
+  
+  var sheet = SpreadsheetApp.getActive().getSheetByName(userDataSheet);
+  var getHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues();
+  var keyCol = getHeaders[0].indexOf(keyHeader) + 1; // Finds the column where Decisioner information is located
+  
+  // Create properties for the new object
+  for (var i = 2 ; i < sheet.getLastRow() + 1; i++) { // Goes down the row to create key/pair values for the new object
+    var createKeyName = sheet.getRange(i, keyCol).getValue(); // Get key name
+    var getKeyValue = sheet.getRange(i, keyCol + 1).getValue(); // Get value
+    this[createKeyName] = getKeyValue; // Adds a new key to the object, and pairs a value to the key
+    Logger.log(this[createKeyName] = getKeyValue);
+  } 
+};
+
+
+// Sends greeting, and requests to run report for the day
+function startShiftGreeting() {
+  var currentTime = new Date();
+  var startDay = decisionerObj.start_day; // Get first work day of Decisioner
+  var endDay = decisionerObj.end_day; // Get last work day of Decisioner
+  var startShift = roundTheNumber(decisionerObj.start_shift);
+  var greeting = 'Good morning ' + decisionerObj.first_name + ',';
+  greeting += '\\n \\n Today is ' + currentTime + '. Would you like to receive a report of tasks reviewed from the every hour?';
+  var response1 = 'Thank you! Please press the "Run Report" button, and we will email you a report at the end of each hour.';
+  var response2 = 'Please let us know if we could be of help to you next time!';
+  Logger.log('Check point 1: decisionerObj properties retrieved');
+  
+  // Check if spreadsheet was opened during the days that the Decisioner is scheduled to work
+  if (currentTime.getDay() >= startDay && currentTime.getDay() <= endDay) {
+    // Check if spreadsheet was opened an hour before, or on the hour that the Decisioner starts their shift
+    if (currentTime.getHours() >= startShift - 1 && currentTime.getHours() <= startShift) {
+      var morningGreeting = Browser.msg('Welcome!', greeting, Browser.Buttons.YES_NO); // Ask permission to run hourly report
+      if (morningGreeting == 'yes') {
+        Browser.msgBox(response1);
+        setUpButton(); // Create button for report if the response is 'Yes'
+      } else {
+        Browser.msgBox(response2);
+      }
+    }
+  }
+};
+
+
+
+// Create a dropdown menu to manually start hourly report
+function setUpButton() {
+  var ui = SpreadsheetApp.getUi();
+  var createButton = ui.createMenu('App Scripts');
+  createButton.addItem('Run Report', 'createTrigger');
+}
+
+
+
+// Create a trigger to run every 1 hour
+function createTrigger() {
+  var createTrigger = ScriptApp.newTrigger('checkReportTimes') // Run checkReportTimes
+  .timeBased()
+  .everyHours(1)
+  .create();
+}
+
+
+
+// Disconnect here. startShiftGreeting does not receive an argument.
+
+
+
+// Check current time to see if a report can be produced
+function checkReportTimes() {
+  var currentTime = new Date();
+  var firstReport = roundTheNumber(decisionerObj.start_shift); // Get hour that Decisioner starts their shift
+  Logger.log('firstReport: ' + firstReport);
+  var lastReport = roundTheNumber(decisionerObj.end_shift); // Get hour that Decisioner ends their shift
+  Logger.log('lastReport: ' + lastReport);
+  
+  if (currentTime.getHours() >= firstReport + 1 && currentTime.getHours() <= lastReport) { // Fetch report
+    Logger.log('We can report. Current hour is ' + currentTime.getHours());
+    runReport(decisionerObj); 
+  } else if (currentTime.getHours() == lastReport + 1) { // If it is the last hour, then fetch report, and close trigger
+    runReport(decisionerObj); 
+    deleteTriggers();
+  }
+};
+
+
+
+// Retrievs the number of tasks reviewed in the past hour
+function runReport(decisionerObj) {
+  var currentTime = new Date();
+  var trackerSheet = 'Daily_log';
+  var timeStampHeader = 'Time_stamp';
+  var taskCountsHeader = 'Task_count';
+  var taskCount = 0; // Set number of tasks reviewed to zero
+  
+  var ss = SpreadsheetApp.getActive();
+  var sheet = ss.getSheetByName(trackerSheet);
+  var lastRowIndex = getLastRow(1);
+  var getHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues();
+  var timeStampCol = getHeaders[0].indexOf(timeStampHeader) + 1; // Get column where time stamps are located
+  var taskCountCol = getHeaders[0].indexOf(taskCountsHeader) - timeStampCol + 2; // Get column where task counts are located
+  
+  // Get range containing both time stamps, and task counts
+  var getRecentLogs = sheet.getRange(lastRowIndex[0] - lastRowIndex[1], timeStampCol, lastRowIndex[2], taskCountCol).getValues();
+  
+  for (i in getRecentLogs) { // Count the number of tasks reviewed from the past hour
+    var row = getRecentLogs[i];
+    Logger.log('row: ' + row);
+    var timeStampValue = row[timeStampCol - 1];
+    var countTaskValue = row[taskCountCol - 1];
+    if (timeStampValue.getDate() == currentTime.getDate()) {
+      if (timeStampValue.getHours() == currentTime.getHours() - 1) {
+        taskCount += countTaskValue; // Add tasks counted to taskCount
+        Logger.log('taskCount is now ' + taskCount);
+      }
+    }
+  }
+  
+  var message = 'It is '+currentTime+'. You reviewed '+taskCount+' tasks in the past hour. '; 
+  message += 'Please remember to reset your Cross-Department status in Cisco.';
+  
+  Logger.log('message: ' + message);
+  emailReport(message); // Email the report of current time and number of tasks reviewed
+};
+
+
+
+// Email report of the number of tasks reviewed in the past hour; takes parameters of decisioner object, and content of email
+function emailReport(message) {
+  var user = new CreateDecisionerObj(); // Initialize user object again
+  var email = user.email;
+  Logger.log('email: ' + email);
+  var subject = 'Hourly task review report';
+  var message = message;
+  
+  MailApp.sendEmail(email, subject, message); // Send email
+};
+
+
+
+// Delete all triggers
+function deleteTriggers() {
+  var getAllTriggers = ScriptApp.getProjectTriggers(); // All triggers related to the spreadsheet
+  
+  for (var i = 0; i < getAllTriggers.length; i++) {
+    var deleteScripts = ScriptApp.deleteTrigger(i); // Delete scripts
+  }
+}
+
+
